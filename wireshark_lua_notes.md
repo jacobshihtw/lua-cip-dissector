@@ -7,6 +7,13 @@
 - [Wireshark’s Lua API Reference Manual](https://www.wireshark.org/docs/wsdg_html_chunked/wsluarm_modules.html)
 - [Wireshark Lua API Wiki](https://wiki.wireshark.org/LuaAPI)
 - [CommandFusion/CIP](https://github.com/CommandFusion/CIP/blob/master/CommandFusion/CIPv1.1.js)
+- [rdriscoll/Crestron-CIP](https://github.com/rdriscoll/Crestron-CIP)
+
+## screenshots
+
+![cip-dissector-data.jpg](images/cip-dissector-data.jpg)
+
+![cip-dissector-join.jpg](images/cip-dissector-join.jpg)
 
 ## to load wireshark lua scripts
 
@@ -16,8 +23,16 @@
 
     - windows
 
+    copy to global plugins folder
+
     ```
     copy myscript.lua "c:\Program Files\Wireshark\plugins"
+    ```
+
+    copy to personal plugins folder
+
+    ```
+    copy myscript.lua %AppData%\Wireshark\plugins\
     ```
 
     - linux
@@ -44,7 +59,7 @@
     wireshark -X lua_script:myscript.lua
     ```
 
-## Functions for handling packet data
+## wireshark-lua development
 
 ### Tvb
 
@@ -72,3 +87,18 @@ Packet information.
 | port_type | type of port of src_port and dst_port. |
 | src_port  | source port of this packet |
 | dst_port  | destination port of this packet |
+| columns  | the Columns object of packet list |
+
+- to display the packet information in packet list.
+
+    ```
+    local info = string.format("%02x %s", pkt_type, pkt_types[pkt_type])
+    pinfo.cols.info:set(info)
+    ```
+
+- to display the protocol in packet list.
+
+    ```
+    local protocol = "CIP"
+    pinfo.cols.protocol:set(protocol)
+    ```
