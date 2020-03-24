@@ -3,7 +3,7 @@
 --
 -- https://github.com/jacobshihtw/lua-cip-dissector
 --
--- Version: 0.9.01
+-- Version: 0.9.02
 --
 
 local cip = Proto("crestron","control tcp cip protocol")
@@ -26,7 +26,7 @@ local dprint2 = function() end
 local function reset_debug_level()
   if default_settings.debug_level > debug_level.DISABLED then
     dprint = function(...)
-      print(table.concat({"Lua:", ...}," "))
+      print(table.concat({"CIP:", ...}," "))
     end
 
     if default_settings.debug_level > debug_level.LEVEL_1 then
@@ -40,16 +40,17 @@ reset_debug_level()
 ----------------------------------------
 -- packet types
 local pkt_types = {
-  [0x00] = "ack",
-  [0x01] = "connection info",
-  [0x02] = "register",
+  [0x00] = "dummy",
+  [0x01] = "connecting",
+  [0x02] = "connected",
   [0x03] = "disconnecting",
   [0x04] = "disconnected",
   [0x05] = "data",
-  [0x0B] = "unknown",
+  [0x0B] = "authenticating",
+  [0x0C] = "authenticated",
   [0x0D] = "heartbeat ping",
   [0x0E] = "heartbeat pong",
-  [0x0F] = "query"
+  [0x0F] = "program ready"
 }
 
 -- join types
@@ -60,39 +61,18 @@ local join_types = {
 }
 
 -- join numbers
-local join_numbers = {
-  [0x0001] = "help request",
-  [0x0002] = "error message",
-  [0x0003] = "data log",
-  [0x0005] = "power on",
-  [0x0006] = "power off",
-  [0x0028] = "device id string",
-
+local join_numbers_digital = {
   -- power
   [0x0005] = "power on",
   [0x0006] = "power off",
   [0x0009] = "power off warning",
-  [0x1389] = "power status",
   [0x1428] = "warming up",
-  [0x1392] = "warming up progress",
   [0x1429] = "cooling down",
-  [0x1393] = "cooling down progress",
 
   -- emergency message
-  [0x0016] = "emergency",
-
-  -- lamp
-  [0x0002] = "lamp hours integer",
-  [0x0005] = "lamp hours text",
-  [0x138c] = "lamp hours text",
-  [0x138b] = "lamp mode text",
-  [0x13b0] = "max lamp life",
+  [0x0016] = "emergency message supported",
 
   -- picture
-  [0x1389] = "color",
-  [0x138a] = "brightness",
-  [0x138b] = "contrast",
-  [0x138c] = "sharpness",
   [0x13f3] = "color +",
   [0x13f4] = "color -",
   [0x13f5] = "brightness +",
@@ -103,7 +83,6 @@ local join_numbers = {
   [0x13fa] = "sharpness -",
 
   -- audio
-  [0x1394] = "volume",
   [0x13fb] = "volume +",
   [0x13fc] = "volume -",
   [0x13fd] = "mute on",
@@ -111,15 +90,6 @@ local join_numbers = {
   [0x13ff] = "mute toggle",
 
   -- network
-  [0x13b0] = "ip address",
-  [0x13b1] = "subnet mask",
-  [0x13b2] = "default gateway",
-  [0x13b3] = "dns server",
-  [0x13b4] = "mac address",
-  [0x13b5] = "control system ip address",
-  [0x13b6] = "control system ip id",
-  [0x13b7] = "control system port",
-  [0x13af] = "host name",
   [0x145a] = "dhcp enable",
   [0x145b] = "dhcp disable",
 
@@ -139,7 +109,6 @@ local join_numbers = {
   [0x13da] = "source 13",
   [0x13db] = "source 14",
   [0x13dc] = "source 15",
-  [0x1392] = "current source",
   [0x13e2] = "source search",
 
   -- password
@@ -151,45 +120,17 @@ local join_numbers = {
   [0x1461] = "admin password disabled",
   [0x1462] = "admin password accepted",
   [0x1463] = "admin password denied",
-  [0x13c5] = "user new password",
-  [0x13c6] = "admin new password",
-  [0x13c7] = "entered new password",
-
-  -- non-classified
-  [0x1395] = "feature disable feedback",
 
   -- temperature
-  [0x139d] = "temperature 1",
-  [0x139e] = "temperature 2",
-  [0x139f] = "temperature 3",
-  [0x13a0] = "temperature 4",
-  [0x13a1] = "temperature 5",
   [0x1450] = "disable temperature report",
   [0x1451] = "temperature format",
 
   -- lamp - advanced
-  [0x13a8] = "lamp 2 hours",
-  [0x13a9] = "lamp 3 hours",
-  [0x13aa] = "lamp 4 hours",
   [0x1464] = "lamp mode 1",
   [0x1465] = "lamp mode 2",
   [0x1466] = "lamp mode 3",
   [0x1467] = "lamp mode 4",
   [0x1468] = "lamp mode 5",
-
-  -- info - advanced
-  [0x13ba] = "projector name",
-  [0x13bb] = "assigned to name",
-  [0x13bc] = "location",
-  [0x13bd] = "projector position",
-  [0x13be] = "room name",
-  [0x13bf] = "resolution",
-  [0x13c0] = "preset mode",
-  [0x13c1] = "firmware version",
-
-  -- language
-  [0x13c2] = "language code",
-  [0x13c3] = "default language",
 
   -- picture - advanced
   [0x13ec] = "auto position",
@@ -200,13 +141,13 @@ local join_numbers = {
   [0x13f1] = "freeze on",
   [0x13f2] = "freeze off",
   [0x141e] = "menu",
-  [0x142f] = "up",
+  [0x141f] = "up",
   [0x1420] = "down",
   [0x1421] = "left",
   [0x1422] = "right",
   [0x1423] = "exit",
   [0x1424] = "enter",
-  [0x1425] = "re-sync",
+  [0x1433] = "re-sync",
   [0x1432] = "busy",
   [0x1434] = "closed captioning on",
   [0x1435] = "closed captioning off",
@@ -237,6 +178,118 @@ local join_numbers = {
   [0x1477] = "preset mode 10"
 }
 
+local join_numbers_analog = {
+  -- power
+  [0x1392] = "warming up progress",
+  [0x1393] = "cooling down progress",
+
+  -- emergency message
+  [0x0016] = "emergency message",
+  [0x13ba] = "emergency message text format",
+
+  -- lamp
+  [0x0002] = "lamp hours integer",
+  [0x13b0] = "max lamp life",
+
+  -- picture
+  [0x1389] = "color",
+  [0x138a] = "brightness",
+  [0x138b] = "contrast",
+  [0x138c] = "sharpness",
+
+  -- audio
+  [0x1394] = "volume",
+
+  -- non-classified
+  [0x1395] = "feature disable feedback",
+
+  -- temperature
+  [0x139d] = "temperature 1",
+  [0x139e] = "temperature 2",
+  [0x139f] = "temperature 3",
+  [0x13a0] = "temperature 4",
+  [0x13a1] = "temperature 5",
+
+  -- lamp - advanced
+  [0x13a8] = "lamp 2 hours",
+  [0x13a9] = "lamp 3 hours",
+  [0x13aa] = "lamp 4 hours",
+}
+
+local join_numbers_serial = {
+  -- non-classified
+  [0x0001] = "help request",
+  [0x0002] = "error message",
+  [0x0003] = "data log",
+  [0x0028] = "device id string",
+
+  -- power
+  [0x1389] = "power status message",
+  [0x1389] = "power status text",
+
+  -- emergency message
+  [0x0016] = "emergency",
+  [0x0018] = "jpeg path",
+
+  -- lamp
+  [0x0005] = "lamp hours text",
+  [0x138c] = "lamp hours text",
+  [0x138b] = "lamp mode text",
+
+  -- network
+  [0x13b0] = "ip address",
+  [0x13b1] = "subnet mask",
+  [0x13b2] = "default gateway",
+  [0x13b3] = "dns server",
+  [0x13b4] = "mac address",
+  [0x13b5] = "control system ip address",
+  [0x13b6] = "control system ip id",
+  [0x13b7] = "control system port",
+  [0x13af] = "host name",
+
+  -- source
+  [0x13ce] = "source 1",
+  [0x13cf] = "source 2",
+  [0x13d0] = "source 3",
+  [0x13d1] = "source 4",
+  [0x13d2] = "source 5",
+  [0x13d3] = "source 6",
+  [0x13d4] = "source 7",
+  [0x13d5] = "source 8",
+  [0x13d6] = "source 9",
+  [0x13d7] = "source 10",
+  [0x13d8] = "source 11",
+  [0x13d9] = "source 12",
+  [0x13da] = "source 13",
+  [0x13db] = "source 14",
+  [0x13dc] = "source 15",
+  [0x1392] = "current source",
+
+  -- password
+  [0x13c5] = "user new password",
+  [0x13c6] = "admin new password",
+  [0x13c7] = "entered new password",
+
+  -- lamp - advanced
+  [0x13a8] = "lamp 2 hours",
+  [0x13a9] = "lamp 3 hours",
+  [0x13aa] = "lamp 4 hours",
+
+  -- info - advanced
+  [0x13ba] = "projector name",
+  [0x13bb] = "assigned to name",
+  [0x13bc] = "location",
+  [0x13bd] = "projector position",
+  [0x13c1] = "room name",
+  [0x13be] = "resolution",
+  [0x13bf] = "preset mode",
+  [0x13c0] = "firmware version",
+
+  -- language
+  [0x13c2] = "language code",
+  [0x13c3] = "default language",
+}
+
 -- protocol fields (but not register it yet)
 local pf_segment      = ProtoField.bytes ("cip.segment", "CIP")
 local pf_pkt_type     = ProtoField.uint8 ("cip.pkt_type", "Packet Type", base.HEX, pkt_types, nil, "packet type")
@@ -244,14 +297,9 @@ local pf_pkt_len      = ProtoField.uint16("cip.pkt_len", "Packet Length")
 local pf_payload      = ProtoField.bytes ("cip.payload", "Payload")
 local pf_data_len     = ProtoField.uint8 ("cip.data_len", "Data Length")
 local pf_join_type    = ProtoField.uint8 ("cip.join_type", "Join Type", base.HEX, join_types, nil, "join type")
-local pf_join_number  = ProtoField.uint16("cip.join_number", "Join Number", base.HEX, join_numbers, nil, "join number")
 local pf_value_uint16 = ProtoField.uint16("cip.value", "Value", base.HEX, nil, nil, "join value")
 local pf_value_string = ProtoField.string("cip.value", "Value")
-local pf_value_raw    = ProtoField.bytes ("cip.value", "Value")
 local pf_data_raw     = ProtoField.bytes ("cip.data", "Data")
-local pf_join         = ProtoField.bytes ("cip.join", "Join Number/Value")
-local pf_summary      = ProtoField.string("cip.summary", "CIP")
-local pf_string       = ProtoField.string("cip.string", "CIP")
 
 -- to register the ProtoFields above into new Protocol
 cip.fields = {
@@ -261,12 +309,7 @@ cip.fields = {
   pf_payload,
   pf_data_len,
   pf_join_type,
-  pf_join_number,
-  pf_join,
-  pf_value_raw,
-  pf_data_raw,
-  pf_summary,
-  pf_string
+  pf_data_raw
 }
 
 ----------------------------------------
@@ -278,11 +321,11 @@ local JOIN_TYPE_SERIAL  = 0x15
 --
 -- pkt_add_header
 --  @brief
---    add header to tree.
+--    add cip segment to tree and header to subtree of segment.
 --  @param buf, Tvb, packet’s buffer.
 --  @param pinfo, Pinfo, packet information.
 --  @param tree, TreeItem, information in the packet-details pane of Wireshark.
---  @return subtree, TreeItem object of the tree root.
+--  @return subtree, TreeItem object of cip segment.
 function pkt_add_header(buf, pinfo, tree)
   subtree = tree:add(pf_segment, buf)
   subtree:add(pf_pkt_type, buf(0, 1))
@@ -315,12 +358,12 @@ end
 --  @param tree, TreeItem, information in the packet-details pane of Wireshark.
 function pkt_type_01_dissector(buf, pinfo, tree)
   local pkt_type, pkt_len = segment_header(buf(0, HEADER_LEN):tvb())
-  local value = buf(3, 4):uint()
   local subtree = pkt_add_header(buf, pinfo, tree)
-  local payload_tree = subtree:add(pf_value_raw, buf(HEADER_LEN, pkt_len))
+  local payload_tree = subtree:add(pf_data_raw, buf(HEADER_LEN, pkt_len))
+  local value = buf(3, 4):uint()
   local controller =  (value == 0x00 and "falsh ui" or "roomview")
   if value ~= 0x00 then
-    controller = string.format("%s - %d.%d.%d.%d", controller, buf(3,1):uint(), buf(4,1):uint(), buf(5,1):uint(), buf(6,1):uint())
+    controller = string.format("%s - %s", controller, buf(3,4):ipv4())
   end
   payload_tree:add(buf(3, 4), "From: "..controller)
   payload_tree:add(pf_data_raw, buf(7))
@@ -336,14 +379,42 @@ end
 --  @param tree, TreeItem, information in the packet-details pane of Wireshark.
 function pkt_type_02_dissector(buf, pinfo, tree)
   local pkt_type, pkt_len = segment_header(buf(0, HEADER_LEN):tvb())
-  local value = buf(3, 4):uint()
   local subtree = pkt_add_header(buf, pinfo, tree)
-  local payload_tree = subtree:add(pf_value_raw, buf(HEADER_LEN, pkt_len))
+  local payload_tree = subtree:add(pf_data_raw, buf(HEADER_LEN, pkt_len))
+  local value = buf(3, 4):uint()
   ipid = string.format("ip id: %d", value)
   payload_tree:add(buf(3, 4), ipid)
   pkt_set_info(pinfo, pkt_type, ipid)
 end
 
+--
+-- pkt_type_05_join_name
+--  @brief
+--    to get the name of the join number.
+--  @param join_type, join type.
+--  @param join_number, join number.
+--  @return join_name, friendly name of join number.
+function pkt_type_05_join_name(join_type, join_number)
+  local join_numbers = {}
+  if join_type == JOIN_TYPE_DIGITAL then
+    join_numbers = join_numbers_digital
+  elseif join_type == JOIN_TYPE_ANALOG then
+    join_numbers = join_numbers_analog
+  elseif join_type == JOIN_TYPE_SERIAL then
+    join_numbers = join_numbers_serial
+  end
+  join_name = join_numbers[join_number]
+  --[[
+    if the join name cannot be resolved from the join number table and the
+    join number is less than 256, the connection is from control box
+    supposedly, try to shift the join number with offset 4990 and resolve again.
+  ]]--
+  if join_name == nil and join_number < 256 then
+    join_number = join_number + 4990
+    join_name = join_numbers[join_number]
+  end
+  return join_name
+end
 
 --
 -- pkt_type_05_parse_payload
@@ -353,7 +424,7 @@ end
 --  @return summary, summary of the payload.
 --  @return join_number, join number.
 --  @return join_value, join value.
---  @return join_string, readable name of join number.
+--  @return join_name, readable name of join number.
 function pkt_type_05_parse_payload(payload)
   --[[
     | payload layout      |
@@ -371,19 +442,15 @@ function pkt_type_05_parse_payload(payload)
   local data_len = payload(2, 1):uint()
   local data = payload(3, data_len)
   local join_type = data(0, 1):uint()
-  local join_number, join_value, join_string, summary, value_string
+  local join_number, join_value, join_name, summary, value_string
   if join_type == JOIN_TYPE_DIGITAL then
     join_number = bit.band(data(1, 2):le_uint() + 1, 0x7fff)
     join_value = bit.band(data(2, 1):uint(), 0x80)
-    join_string = join_numbers[join_number]
-    if join_string == nil then
-      join_string = "unknown"
-    end
     value_string = string.format("0x%02x", join_value)
   elseif join_type == JOIN_TYPE_ANALOG then
     join_number = data(1, 2):uint() + 1
     join_value = data(3, 2):uint()
-    value_string = string.format("0x04x", join_value)
+    value_string = string.format("0x%04x", join_value)
   elseif join_type == JOIN_TYPE_SERIAL then
     join_number = data(1, 2):uint() + 1
     -- skip the first byte \003 of the join value.
@@ -391,42 +458,41 @@ function pkt_type_05_parse_payload(payload)
     -- to get the string value.
     --    10.0.0.13
     -- and remember the index of lua starts from 1.
-    join_value = string.sub(data(3):string(), 2)
+    data_type = data(3, 1):uint()
+    join_value = data_type == 0x03 and string.sub(data(3):string(), 2) or ""
     value_string = join_value
   else
     join_number = data(1, 2):uint() + 1
     join_value = data(3):uint()
     value_string = join_value
   end
-  join_string = join_numbers[join_number]
-  if join_string == nil then
-    join_string = "unknown"
-  end
+  join_name = pkt_type_05_join_name(join_type, join_number)
   join_type_abbrev = join_types[join_type]
   if join_type_abbrev == nil then
     join_type_abbrev = "?"
   else
     join_type_abbrev = string.upper(string.match(join_type_abbrev, "^%a"))
   end
-  summary = string.format("%s %04x (%s) %s", join_type_abbrev, join_number, join_string, value_string)
-  return summary, join_number, join_value, join_string
+  summary = string.format("%s %d (%s) %s", join_type_abbrev, join_number, join_name, value_string)
+  return summary, join_number, join_value, join_name
 end
 
 function pkt_type_05_dissector(buf, pinfo, tree)
   local pkt_type, pkt_len = segment_header(buf(0, HEADER_LEN):tvb())
+  local subtree = pkt_add_header(buf, pinfo, tree)
   local data_len = buf(5, 1):uint()
-  subtree = pkt_add_header(buf, pinfo, tree)
   local payload = buf(3, pkt_len)
   payload_tree = subtree:add(pf_payload, payload)
   payload_tree:add(pf_data_len, buf(5, 1))
   if data_len >= 3 then
-    summary, join_number, join_value, join_string = pkt_type_05_parse_payload(payload)
-    -- to display summary for cip segment. 
+    summary, join_number, join_value, join_name = pkt_type_05_parse_payload(payload)
+    -- to display summary for cip segment.
     subtree:append_text(" - "..summary)
     payload_tree:add(pf_join_type, payload(3, 1))
-    data_tree = payload_tree:add(pf_join, payload(4, data_len-1), "", summary)
-    data_tree:add(pf_join_number, join_number)
-    data_tree:add(pf_value_uint16, join_value)
+    data_tree = payload_tree:add(pf_data_raw, payload(4, data_len-1), "", summary)
+    local join_string = string.format("Join number: %d (%s)", join_number, join_name)
+    data_tree:add(pf_value_string, join_string)
+    data_tree:add(pf_value_uint16, "Value: "..join_value)
   else
     payload_tree:add(pf_data_raw, payload(3, data_len))
   end
@@ -436,7 +502,7 @@ end
 function pkt_generic_dissector(buf, pinfo, tree)
   local pkt_type, pkt_len = segment_header(buf(0, HEADER_LEN):tvb())
   subtree = pkt_add_header(buf, pinfo, tree)
-  subtree:add(pf_value_raw, buf(HEADER_LEN, pkt_len))
+  subtree:add(pf_data_raw, buf(HEADER_LEN, pkt_len))
   pkt_set_info(pinfo, pkt_type)
 end
 
@@ -470,15 +536,17 @@ function segment_header(tvb)
 end
 
 local cip_dissector = {
-  [0x01] = pkt_type_01_dissector,
-  [0x02] = pkt_type_02_dissector,
-  [0x03] = pkt_generic_dissector,
-  [0x04] = pkt_generic_dissector,
-  [0x05] = pkt_type_05_dissector,
-  [0x0b] = pkt_generic_dissector,
-  [0x0d] = pkt_generic_dissector, -- heartbeat
-  [0x0e] = pkt_generic_dissector, -- heartbeat response
-  [0x0f] = pkt_generic_dissector
+  [0x00] = pkt_generic_dissector, -- dummy
+  [0x01] = pkt_type_01_dissector, -- connecting
+  [0x02] = pkt_type_02_dissector, -- connected
+  [0x03] = pkt_generic_dissector, -- disconnecting
+  [0x04] = pkt_generic_dissector, -- disconnected
+  [0x05] = pkt_type_05_dissector, -- data
+  [0x0b] = pkt_generic_dissector, -- authenticating
+  [0x0c] = pkt_generic_dissector, -- authenticated
+  [0x0d] = pkt_generic_dissector, -- heartbeat ping
+  [0x0e] = pkt_generic_dissector, -- heartbeat pong
+  [0x0f] = pkt_generic_dissector  -- program ready
 }
 
 function cip.dissector(buf, pinfo, tree)
