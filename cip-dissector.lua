@@ -16,6 +16,15 @@ local debug_level = {
 
 local DEBUG = debug_level.LEVEL_2
 
+local HEADER_LEN = 3
+local JOIN_TYPE_DIGITAL      = "digital"
+local JOIN_TYPE_ANALOG       = "analog"
+local JOIN_TYPE_SERIAL       = "serial"
+local JOIN_TYPE_SERIAL_1     = "serial 1"
+local JOIN_TYPE_SERIAL_2     = "serial 2"
+local JOIN_TYPE_COMMAND      = "command"
+local JOIN_TYPE_SMART_OBJECT = "smart object"
+
 local default_settings = {
   debug_level  = DEBUG,
   port         = 41794,
@@ -41,27 +50,53 @@ reset_debug_level()
 -- packet types
 local pkt_types = {
   [0x00] = "dummy",
-  [0x01] = "connecting",
+  [0x01] = "connect",
   [0x02] = "connected",
-  [0x03] = "disconnecting",
+  [0x03] = "disconnect",
   [0x04] = "disconnected",
   [0x05] = "data",
-  [0x0B] = "authenticating",
+  [0x0A] = "connect dhcp",
+  [0x0B] = "authenticate",
   [0x0C] = "authenticated",
   [0x0D] = "heartbeat ping",
   [0x0E] = "heartbeat pong",
   [0x0F] = "program ready"
 }
 
+-- command types
+local command_types = {
+  [0x00] = "clear all/program restart/update request",
+  [0x02] = "sleep",
+  [0x03] = "wake",
+  [0x16] = "end of update",
+  [0x1d] = "---",
+  [0x1e] = "update request",
+  [0x1f] = "all clear"
+}
+
 -- join types
 local join_types = {
-  [0x00] = "digital",
-  [0x14] = "analog",
-  [0x15] = "serial"
+  [0x00] = JOIN_TYPE_DIGITAL,
+  [0x27] = JOIN_TYPE_DIGITAL,
+
+  [0x01] = JOIN_TYPE_ANALOG,
+  [0x14] = JOIN_TYPE_ANALOG,
+
+  [0x02] = JOIN_TYPE_SERIAL_1,
+  [0x12] = JOIN_TYPE_SERIAL_2,
+  [0x15] = JOIN_TYPE_SERIAL,
+
+  [0x03] = JOIN_TYPE_COMMAND,
+
+  [0x38] = JOIN_TYPE_SMART_OBJECT
 }
 
 -- join numbers
 local join_numbers_digital = {
+  -- non-classified
+  [0x0001] = "online",  -- undocemented
+  [0x0003] = "log",     -- undocemented
+
   -- power
   [0x0005] = "power on",
   [0x0006] = "power off",
@@ -211,6 +246,7 @@ local join_numbers_analog = {
   [0x13a1] = "temperature 5",
 
   -- lamp - advanced
+  [0x0002] = "lamp 1 hours",  -- undocemented
   [0x13a8] = "lamp 2 hours",
   [0x13a9] = "lamp 3 hours",
   [0x13aa] = "lamp 4 hours",
@@ -225,7 +261,7 @@ local join_numbers_serial = {
 
   -- power
   [0x1389] = "power status message",
-  [0x1389] = "power status text",
+  [0x138a] = "power status text",
 
   -- emergency message
   [0x0016] = "emergency",
@@ -271,6 +307,7 @@ local join_numbers_serial = {
   [0x13c7] = "entered new password",
 
   -- lamp - advanced
+  [0x0005] = "lamp 1 hours",  -- undocemented
   [0x13a8] = "lamp 2 hours",
   [0x13a9] = "lamp 3 hours",
   [0x13aa] = "lamp 4 hours",
@@ -313,10 +350,6 @@ cip.fields = {
 }
 
 ----------------------------------------
-local HEADER_LEN = 3
-local JOIN_TYPE_DIGITAL = 0x00
-local JOIN_TYPE_ANALOG  = 0x14
-local JOIN_TYPE_SERIAL  = 0x15
 
 --
 -- pkt_add_header
@@ -334,16 +367,29 @@ function pkt_add_header(buf, pinfo, tree)
 end
 
 --
+-- pkt_set_brief_info
+--  @brief
+--    set the brief information of the packet to the global variable pkt_info.
+--  @param text, the brief information of the packet.
+function pkt_set_brief_info(text)
+  if pkt_info == nil or string.len(pkt_info) == 0 then
+    pkt_info = text
+  -- else
+  --   pkt_info = pkt_info .. " ..."
+  end
+end
+
+--
 -- pkt_set_info
 --  @brief
 --    set the info column of packet list.
 --  @param pinfo, Pinfo, packet information.
 --  @param pkt_type, packet type.
 --  @param text, additional text.
-function pkt_set_info(pinfo, pkt_type, text)
+function pkt_set_info(pinfo, pkt_type)
   local info = string.format("%02x %s", pkt_type, pkt_types[pkt_type])
-  if text and string.len(text) > 0 then
-    info = info .. " - " .. text
+  if pkt_info and string.len(pkt_info) > 0 then
+    info = info .. " - " .. pkt_info
   end
   pinfo.cols.info:set(info)
   pinfo.cols.protocol:set("CIP")
@@ -359,15 +405,22 @@ end
 function pkt_type_01_dissector(buf, pinfo, tree)
   local pkt_type, pkt_len = segment_header(buf(0, HEADER_LEN):tvb())
   local subtree = pkt_add_header(buf, pinfo, tree)
-  local payload_tree = subtree:add(pf_data_raw, buf(HEADER_LEN, pkt_len))
-  local value = buf(3, 4):uint()
-  local controller =  (value == 0x00 and "falsh ui" or "roomview")
-  if value ~= 0x00 then
-    controller = string.format("%s - %s", controller, buf(3,4):ipv4())
+  local payload = buf(HEADER_LEN, pkt_len)
+  local payload_tree = subtree:add(pf_data_raw, payload)
+  local value = payload(0, 4):uint()
+  local dest_cid = payload(4, 2):uint()
+  local flags = payload(6, 1):uint()
+  local controller =  ""
+  if value == 0x00 then
+    controller = "falsh ui"
+  else
+    controller = dest_cid == 0x0003 and "roomview" or "xpanel"
+    controller = string.format("%s - %s", controller, payload(0, 4):ipv4())
   end
-  payload_tree:add(buf(3, 4), "From: "..controller)
-  payload_tree:add(pf_data_raw, buf(7))
-  pkt_set_info(pinfo, pkt_type, controller)
+  payload_tree:add(payload(0, 4), "From: "..controller)
+  payload_tree:add(pf_value_string, string.format("DestCID: 0x%04x", dest_cid))
+  payload_tree:add(pf_value_string, string.format("Flags: 0x%02x", flags))
+  pkt_set_brief_info(controller)
 end
 
 --
@@ -380,11 +433,13 @@ end
 function pkt_type_02_dissector(buf, pinfo, tree)
   local pkt_type, pkt_len = segment_header(buf(0, HEADER_LEN):tvb())
   local subtree = pkt_add_header(buf, pinfo, tree)
-  local payload_tree = subtree:add(pf_data_raw, buf(HEADER_LEN, pkt_len))
-  local value = buf(3, 4):uint()
-  ipid = string.format("ip id: %d", value)
-  payload_tree:add(buf(3, 4), ipid)
-  pkt_set_info(pinfo, pkt_type, ipid)
+  local payload = buf(HEADER_LEN, pkt_len)
+  local payload_tree = subtree:add(pf_data_raw, payload)
+  payload_tree:add(pf_value_string, string.format("Mode: 0x%02x", payload(2, 1):uint()))
+  if pkt_len > 3 then
+    payload_tree:add(pf_value_string, string.format("Flags: 0x%02x", payload(3, 1):uint()))
+  end
+  pkt_set_brief_info(ipid)
 end
 
 --
@@ -396,12 +451,14 @@ end
 --  @return join_name, friendly name of join number.
 function pkt_type_05_join_name(join_type, join_number)
   local join_numbers = {}
-  if join_type == JOIN_TYPE_DIGITAL then
-    join_numbers = join_numbers_digital
-  elseif join_type == JOIN_TYPE_ANALOG then
-    join_numbers = join_numbers_analog
-  elseif join_type == JOIN_TYPE_SERIAL then
-    join_numbers = join_numbers_serial
+  if join_types[join_type] ~= nil then
+    if string.match(join_types[join_type], JOIN_TYPE_DIGITAL) then
+      join_numbers = join_numbers_digital
+    elseif string.match(join_types[join_type], JOIN_TYPE_ANALOG) then
+      join_numbers = join_numbers_analog
+    elseif string.match(join_types[join_type], JOIN_TYPE_SERIAL) then
+      join_numbers = join_numbers_serial
+    end
   end
   join_name = join_numbers[join_number]
   --[[
@@ -409,11 +466,13 @@ function pkt_type_05_join_name(join_type, join_number)
     join number is less than 256, the connection is from control box
     supposedly, try to shift the join number with offset 4990 and resolve again.
   ]]--
-  if join_name == nil and join_number < 256 then
-    join_number = join_number + 4990
-    join_name = join_numbers[join_number]
+  if join_name == nil then
+    if join_number < 256 and join_number > 0 then
+      join_number = join_number + 4990
+      join_name = join_numbers[join_number]
+    end
   end
-  return join_name
+  return join_name == nil and "(?)" or string.format("(%s)", join_name)
 end
 
 --
@@ -443,15 +502,22 @@ function pkt_type_05_parse_payload(payload)
   local data = payload(3, data_len)
   local join_type = data(0, 1):uint()
   local join_number, join_value, join_name, summary, value_string
-  if join_type == JOIN_TYPE_DIGITAL then
+  local join_type_name = join_types[join_type]
+  local join_type_abbrev = join_type_name == nil and "?" or join_type_name
+  join_type_abbrev = string.upper(string.match(join_type_abbrev, "^%a"))
+  if join_type_name == nil then
+    join_number = 0
+    join_value = ""
+    value_string = join_value
+  elseif string.match(join_type_name, JOIN_TYPE_DIGITAL) then
     join_number = bit.band(data(1, 2):le_uint() + 1, 0x7fff)
     join_value = bit.band(data(2, 1):uint(), 0x80)
     value_string = string.format("0x%02x", join_value)
-  elseif join_type == JOIN_TYPE_ANALOG then
+  elseif string.match(join_type_name, JOIN_TYPE_ANALOG) then
     join_number = data(1, 2):uint() + 1
-    join_value = data(3, 2):uint()
+    join_value = join_type == 0x01 and data(3, 1):uint() or data(3, 2):uint()
     value_string = string.format("0x%04x", join_value)
-  elseif join_type == JOIN_TYPE_SERIAL then
+  elseif string.match(join_type_name, JOIN_TYPE_SERIAL) then
     join_number = data(1, 2):uint() + 1
     -- skip the first byte \003 of the join value.
     --    03 31 30 2e 30 2e 30 2e 31 33
@@ -461,49 +527,96 @@ function pkt_type_05_parse_payload(payload)
     data_type = data(3, 1):uint()
     join_value = data_type == 0x03 and string.sub(data(3):string(), 2) or ""
     value_string = join_value
-  else
-    join_number = data(1, 2):uint() + 1
-    join_value = data(3):uint()
-    value_string = join_value
   end
+  join_type_name = join_type_name == nil and "x" or join_type_name
   join_name = pkt_type_05_join_name(join_type, join_number)
-  join_type_abbrev = join_types[join_type]
-  if join_type_abbrev == nil then
-    join_type_abbrev = "?"
-  else
-    join_type_abbrev = string.upper(string.match(join_type_abbrev, "^%a"))
-  end
-  summary = string.format("%s %d (%s) %s", join_type_abbrev, join_number, join_name, value_string)
+  summary = string.format("%s %d %s %s", join_type_abbrev, join_number, join_name, value_string)
   return summary, join_number, join_value, join_name
 end
 
+--
+-- pkt_type_05_parse_command
+--  @brief
+--    to parse type 05 packet for command type.
+--  @param payload, TvbRange object
+--  @return summary, summary of the payload.
+--  @return command, command.
+--  @return command_name, readable name of command.
+function pkt_type_05_parse_command(payload)
+  --[[
+    | payload layout      |
+    |---------------------|
+    | 00 | 01 | 02 | ...  |
+    | 00   00 |len | data |
+  ]]--
+  --[[
+    | data layout |
+    |---------|
+    | 00 | 01 |
+    |join|sub |
+    |type|type|
+  ]]--
+  local data_len = payload(2, 1):uint()
+  local data = payload(3, data_len)
+  local join_type = data(0, 1):uint()
+  local command = data(1, 1):uint()
+  local command_name = command_types[command]
+  local join_type_name = join_types[join_type]
+  local join_type_abbrev = string.upper(string.match(join_type_name, "^%a"))
+  summary = string.format("%s 0x%02x - %s", join_type_abbrev, command, command_name)
+  return summary, command, command_name
+end
+
+--
+-- pkt_type_05_dissector
+--  @brief
+--    to dissect packet type 0x05
+--  @param buf, Tvb, packet’s buffer.
+--  @param pinfo, Pinfo, packet information.
+--  @param tree, TreeItem, information in the packet-details pane of Wireshark.
 function pkt_type_05_dissector(buf, pinfo, tree)
   local pkt_type, pkt_len = segment_header(buf(0, HEADER_LEN):tvb())
   local subtree = pkt_add_header(buf, pinfo, tree)
+  local payload = buf(HEADER_LEN, pkt_len)
   local data_len = buf(5, 1):uint()
-  local payload = buf(3, pkt_len)
   payload_tree = subtree:add(pf_payload, payload)
   payload_tree:add(pf_data_len, buf(5, 1))
   if data_len >= 3 then
-    summary, join_number, join_value, join_name = pkt_type_05_parse_payload(payload)
+    local summary, join_number, join_value, join_name = pkt_type_05_parse_payload(payload)
     -- to display summary for cip segment.
     subtree:append_text(" - "..summary)
     payload_tree:add(pf_join_type, payload(3, 1))
-    data_tree = payload_tree:add(pf_data_raw, payload(4, data_len-1), "", summary)
-    local join_string = string.format("Join number: %d (%s)", join_number, join_name)
+    local data_tree = payload_tree:add(pf_data_raw, payload(4, data_len-1), "", summary)
+    local join_string = string.format("Join number: %d %s", join_number, join_name)
     data_tree:add(pf_value_string, join_string)
     data_tree:add(pf_value_uint16, "Value: "..join_value)
+    pkt_set_brief_info(summary)
   else
-    payload_tree:add(pf_data_raw, payload(3, data_len))
+    if payload(3, 1):uint() == 0x03 then
+      local summary, command, command_name = pkt_type_05_parse_command(payload)
+      subtree:append_text(" - "..summary)
+      payload_tree:add(pf_join_type, payload(3, 1))
+      local data_tree = payload_tree:add(pf_data_raw, payload(4, data_len-1), "", summary)
+      local command_string = string.format("Command: %d %s", command, command_name)
+      data_tree:add(pf_value_string, command_string)
+      pkt_set_brief_info(summary)
+    else
+      payload_tree:add(pf_data_raw, payload(3, data_len))
+    end
   end
-  pkt_set_info(pinfo, pkt_type)
 end
 
+--
+-- pkt_generic_dissector
+--  @brief
+--    generic cip packet dissector
+--  @param buf, Tvb, packet’s buffer.
+--  @param pinfo, Pinfo, packet information.
+--  @param tree, TreeItem, information in the packet-details pane of Wireshark.
 function pkt_generic_dissector(buf, pinfo, tree)
   local pkt_type, pkt_len = segment_header(buf(0, HEADER_LEN):tvb())
   subtree = pkt_add_header(buf, pinfo, tree)
   subtree:add(pf_data_raw, buf(HEADER_LEN, pkt_len))
-  pkt_set_info(pinfo, pkt_type)
 end
 
 --
@@ -537,12 +650,12 @@ end
 
 local cip_dissector = {
   [0x00] = pkt_generic_dissector, -- dummy
-  [0x01] = pkt_type_01_dissector, -- connecting
+  [0x01] = pkt_type_01_dissector, -- connect
   [0x02] = pkt_type_02_dissector, -- connected
-  [0x03] = pkt_generic_dissector, -- disconnecting
+  [0x03] = pkt_generic_dissector, -- disconnect
   [0x04] = pkt_generic_dissector, -- disconnected
   [0x05] = pkt_type_05_dissector, -- data
-  [0x0b] = pkt_generic_dissector, -- authenticating
+  [0x0b] = pkt_generic_dissector, -- authenticate
   [0x0c] = pkt_generic_dissector, -- authenticated
   [0x0d] = pkt_generic_dissector, -- heartbeat ping
   [0x0e] = pkt_generic_dissector, -- heartbeat pong
@@ -553,6 +666,7 @@ function cip.dissector(buf, pinfo, tree)
   local total_len = buf:reported_length_remaining()
   local cip_tree = tree:add(cip, buf(0,total_len))
   local i = 0
+  pkt_info = nil
   while i < total_len do
     local pkt_type, pkt_len = segment_header(buf(i, HEADER_LEN):tvb())
     local seg_len = HEADER_LEN + pkt_len
@@ -563,11 +677,8 @@ function cip.dissector(buf, pinfo, tree)
     else
       pkt_generic_dissector(segment, pinfo, cip_tree)
     end
+    pkt_set_info(pinfo, pkt_type)
   end
-end
-
-if cip == nil then
-  dprint("cip is nil")
 end
 
 local tcp_encap_table = DissectorTable.get("tcp.port")
