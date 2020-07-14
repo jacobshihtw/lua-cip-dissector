@@ -23,6 +23,7 @@ local JOIN_TYPE_SERIAL       = "serial"
 local JOIN_TYPE_SERIAL_1     = "serial 1"
 local JOIN_TYPE_SERIAL_2     = "serial 2"
 local JOIN_TYPE_COMMAND      = "command"
+local JOIN_TYPE_CALENDAR     = "calendar"
 local JOIN_TYPE_SMART_OBJECT = "smart object"
 
 local default_settings = {
@@ -87,6 +88,7 @@ local join_types = {
   [0x15] = JOIN_TYPE_SERIAL,
 
   [0x03] = JOIN_TYPE_COMMAND,
+  [0x08] = JOIN_TYPE_CALENDAR,
 
   [0x38] = JOIN_TYPE_SMART_OBJECT
 }
@@ -460,6 +462,9 @@ function pkt_type_05_join_name(join_type, join_number)
       join_numbers = join_numbers_serial
     end
   end
+  if join_type == 0x08 then
+    return JOIN_TYPE_CALENDAR
+  end
   join_name = join_numbers[join_number]
   --[[
     if the join name cannot be resolved from the join number table and the
@@ -509,6 +514,10 @@ function pkt_type_05_parse_payload(payload)
     join_number = 0
     join_value = ""
     value_string = join_value
+  elseif string.match(join_type_name, JOIN_TYPE_CALENDAR) then
+    join_number = 0
+    join_value = ""
+    value_string = string.format("%02d:%02d:%02d %02d/%02d/%02d", data(2, 1):uint(), data(3, 1):uint(), data(4, 1):uint(), data(5, 1):uint(), data(6, 1):uint(), data(7, 1):uint())
   elseif string.match(join_type_name, JOIN_TYPE_DIGITAL) then
     join_number = bit.band(data(1, 2):le_uint() + 1, 0x7fff)
     join_value = bit.band(data(2, 1):uint(), 0x80)
