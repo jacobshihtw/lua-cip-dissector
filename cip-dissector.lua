@@ -325,8 +325,8 @@ local join_numbers_serial = {
   [0x13c0] = "firmware version",
 
   -- language
-  [0x13c2] = "language code",
-  [0x13c3] = "default language",
+  [0x13e2] = "language code",
+  [0x13e3] = "default language",
 }
 
 -- protocol fields (but not register it yet)
@@ -506,7 +506,7 @@ function pkt_type_05_parse_payload(payload)
   local data_len = payload(2, 1):uint()
   local data = payload(3, data_len)
   local join_type = data(0, 1):uint()
-  local join_number, join_value, join_name, summary, value_string
+  local join_number, join_value, join_name, summary, value_string, flags
   local join_type_name = join_types[join_type]
   local join_type_abbrev = join_type_name == nil and "?" or join_type_name
   join_type_abbrev = string.upper(string.match(join_type_abbrev, "^%a"))
@@ -528,19 +528,26 @@ function pkt_type_05_parse_payload(payload)
     value_string = string.format("0x%04x", join_value)
   elseif string.match(join_type_name, JOIN_TYPE_SERIAL) then
     join_number = data(1, 2):uint() + 1
-    -- skip the first byte \003 of the join value.
-    --    03 31 30 2e 30 2e 30 2e 31 33
-    -- to get the string value.
-    --    10.0.0.13
+    -- the first byte of value is flags defined as below:
+    -- |                  |  7 |  6 |  5 |  4 |  3 |  2 |  1 |  0 |
+    -- |                  |---:|---:|---:|---:|---:|---:|---:|---:|
+    -- | end of message   |  - |  - |  - |  - |  - |  - |  0 |  1 |
+    -- | start of message |  - |  - |  - |  - |  - |  - |  1 |  0 |
+    -- | continuation     |  - |  - |  - |  - |  - |  - |  1 |  1 |
+    -- | ascii            |  - |  - |  - |  0 |  0 |  0 |  - |  - |
+    -- | utf16            |  - |  - |  - |  0 |  0 |  1 |  - |  - |
+    -- skip the first byte (flags) to get the string value.
     -- and remember the index of lua starts from 1.
-    data_type = data(3, 1):uint()
-    join_value = data_type == 0x03 and string.sub(data(3):string(), 2) or ""
+    END_OF_MESSAGE = 0x01
+    flags = data(3, 1):uint()
+    is_end_of_message = bit.band(flags, END_OF_MESSAGE) == END_OF_MESSAGE
+    join_value = is_end_of_message and string.sub(data(3):string(), 2) or ""
     value_string = join_value
   end
   join_type_name = join_type_name == nil and "x" or join_type_name
   join_name = pkt_type_05_join_name(join_type, join_number)
   summary = string.format("%s %d %s %s", join_type_abbrev, join_number, join_name, value_string)
-  return summary, join_number, join_value, join_name
+  return summary, join_number, join_value, join_name, flags
 end
 
 --
@@ -591,13 +598,16 @@ function pkt_type_05_dissector(buf, pinfo, tree)
   payload_tree = subtree:add(pf_payload, payload)
   payload_tree:add(pf_data_len, buf(5, 1))
   if data_len >= 3 then
-    local summary, join_number, join_value, join_name = pkt_type_05_parse_payload(payload)
+    local summary, join_number, join_value, join_name, flags = pkt_type_05_parse_payload(payload)
     -- to display summary for cip segment.
     subtree:append_text(" - "..summary)
     payload_tree:add(pf_join_type, payload(3, 1))
     local data_tree = payload_tree:add(pf_data_raw, payload(4, data_len-1), "", summary)
     local join_string = string.format("Join number: %d %s", join_number, join_name)
     data_tree:add(pf_value_string, join_string)
+    if flags ~= nil then
+      data_tree:add(pf_value_string, string.format("Flags: 0x%02x", flags))
+    end
     data_tree:add(pf_value_uint16, "Value: "..join_value)
     pkt_set_brief_info(summary)
   else
