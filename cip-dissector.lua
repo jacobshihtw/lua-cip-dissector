@@ -469,11 +469,11 @@ function pkt_type_05_join_name(join_type, join_number)
   --[[
     if the join name cannot be resolved from the join number table and the
     join number is less than 256, the connection is from control box
-    supposedly, try to shift the join number with offset 4990 and resolve again.
+    supposedly, try to shift the join number with offset 4970 and resolve again.
   ]]--
   if join_name == nil then
     if join_number < 256 and join_number > 0 then
-      join_number = join_number + 4990
+      join_number = join_number + 4970
       join_name = join_numbers[join_number]
     end
   end
