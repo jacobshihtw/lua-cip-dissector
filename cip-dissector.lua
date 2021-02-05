@@ -17,14 +17,18 @@ local debug_level = {
 local DEBUG = debug_level.LEVEL_2
 
 local HEADER_LEN = 3
-local JOIN_TYPE_DIGITAL      = "digital"
-local JOIN_TYPE_ANALOG       = "analog"
-local JOIN_TYPE_SERIAL       = "serial"
-local JOIN_TYPE_SERIAL_1     = "serial 1"
-local JOIN_TYPE_SERIAL_2     = "serial 2"
-local JOIN_TYPE_COMMAND      = "command"
-local JOIN_TYPE_CALENDAR     = "calendar"
-local JOIN_TYPE_SMART_OBJECT = "smart object"
+local JOIN_TYPE_DIGITAL          = "digital"
+local JOIN_TYPE_ANALOG           = "analog"
+local JOIN_TYPE_SERIAL_2         = "serial 2"
+local JOIN_TYPE_CONTROL          = "control"
+local JOIN_TYPE_CALENDAR         = "calendar"
+local JOIN_TYPE_SERIAL_12        = "serial 12"
+local JOIN_TYPE_ANALOG_SYMMETRIC = "analog symmetric"
+local JOIN_TYPE_SERIAL           = "serial"
+local JOIN_TYPE_XIO_CONTROL      = "xio control"
+local JOIN_TYPE_REPEAT_DIGITAL   = "repeat digital"
+local JOIN_TYPE_SERIAL_LONG      = "serial long (unicode)"
+local JOIN_TYPE_SMART_OBJECT     = "smart object"
 
 local default_settings = {
   debug_level  = DEBUG,
@@ -78,18 +82,16 @@ local command_types = {
 -- join types
 local join_types = {
   [0x00] = JOIN_TYPE_DIGITAL,
-  [0x27] = JOIN_TYPE_DIGITAL,
-
   [0x01] = JOIN_TYPE_ANALOG,
-  [0x14] = JOIN_TYPE_ANALOG,
-
-  [0x02] = JOIN_TYPE_SERIAL_1,
-  [0x12] = JOIN_TYPE_SERIAL_2,
-  [0x15] = JOIN_TYPE_SERIAL,
-
-  [0x03] = JOIN_TYPE_COMMAND,
+  [0x02] = JOIN_TYPE_SERIAL_2,
+  [0x03] = JOIN_TYPE_CONTROL,
   [0x08] = JOIN_TYPE_CALENDAR,
-
+  [0x12] = JOIN_TYPE_SERIAL_12,
+  [0x14] = JOIN_TYPE_ANALOG_SYMMETRIC,
+  [0x15] = JOIN_TYPE_SERIAL,
+  [0x1c] = JOIN_TYPE_XIO_CONTROL,
+  [0x27] = JOIN_TYPE_REPEAT_DIGITAL,
+  [0x34] = JOIN_TYPE_SERIAL_LONG,
   [0x38] = JOIN_TYPE_SMART_OBJECT
 }
 
@@ -469,11 +471,14 @@ function pkt_type_05_join_name(join_type, join_number)
   --[[
     if the join name cannot be resolved from the join number table and the
     join number is less than 256, the connection is from control box
-    supposedly, try to shift the join number with offset 4970 and resolve again.
+    supposedly, try to shift the join number with offset 4970 (for analog)
+    or 4990 (for serial and digital) and resolve again.
   ]]--
   if join_name == nil then
     if join_number < 256 and join_number > 0 then
-      join_number = join_number + 4970
+      offset = 4990
+      offset = string.match(join_types[join_type], JOIN_TYPE_ANALOG) and 4970 or 4990
+      join_number = join_number + offset
       join_name = join_numbers[join_number]
     end
   end
