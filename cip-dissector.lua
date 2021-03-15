@@ -522,7 +522,7 @@ function pkt_type_05_parse_payload(payload)
   elseif string.match(join_type_name, JOIN_TYPE_CALENDAR) then
     join_number = 0
     join_value = ""
-    value_string = string.format("%02d:%02d:%02d %02d/%02d/%02d", data(2, 1):uint(), data(3, 1):uint(), data(4, 1):uint(), data(5, 1):uint(), data(6, 1):uint(), data(7, 1):uint())
+    value_string = string.format("%02x:%02x:%02x %02x/%02x/%02x", data(2, 1):uint(), data(3, 1):uint(), data(4, 1):uint(), data(5, 1):uint(), data(6, 1):uint(), data(7, 1):uint())
   elseif string.match(join_type_name, JOIN_TYPE_DIGITAL) then
     join_number = bit.band(data(1, 2):le_uint() + 1, 0x7fff)
     join_value = bit.band(data(2, 1):uint(), 0x80)
