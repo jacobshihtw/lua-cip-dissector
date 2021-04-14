@@ -74,7 +74,7 @@ local command_types = {
   [0x02] = "sleep",
   [0x03] = "wake",
   [0x16] = "end of update",
-  [0x1d] = "---",
+  [0x1d] = "end of query response",
   [0x1e] = "update request",
   [0x1f] = "all clear"
 }
@@ -149,6 +149,7 @@ local join_numbers_digital = {
   [0x13db] = "source 14",
   [0x13dc] = "source 15",
   [0x13e2] = "source search",
+  [0x140c] = "source naming supported",
 
   -- password
   [0x145c] = "user password enabled",
@@ -179,6 +180,7 @@ local join_numbers_digital = {
   [0x13f0] = "image mute off",
   [0x13f1] = "freeze on",
   [0x13f2] = "freeze off",
+  [0x140a] = "freeze supported",
   [0x141e] = "menu",
   [0x141f] = "up",
   [0x1420] = "down",
@@ -235,12 +237,16 @@ local join_numbers_analog = {
   [0x138a] = "brightness",
   [0x138b] = "contrast",
   [0x138c] = "sharpness",
+  [0x138d] = "back light",
 
   -- audio
   [0x1394] = "volume",
 
   -- non-classified
   [0x1395] = "feature disable feedback",
+
+  -- source
+  [0x13c4] = "source count",
 
   -- temperature
   [0x139d] = "temperature 1",
@@ -303,6 +309,21 @@ local join_numbers_serial = {
   [0x13da] = "source 13",
   [0x13db] = "source 14",
   [0x13dc] = "source 15",
+  [0x13ec] = "source type 1",
+  [0x13ed] = "source type 2",
+  [0x13ee] = "source type 3",
+  [0x13ef] = "source type 4",
+  [0x13f0] = "source type 5",
+  [0x13f1] = "source type 6",
+  [0x13f2] = "source type 7",
+  [0x13f3] = "source type 8",
+  [0x13f4] = "source type 9",
+  [0x13f5] = "source type 10",
+  [0x13f6] = "source type 11",
+  [0x13f7] = "source type 12",
+  [0x13f8] = "source type 13",
+  [0x13f9] = "source type 14",
+  [0x13fa] = "source type 15",
   [0x1392] = "current source",
 
   -- password
