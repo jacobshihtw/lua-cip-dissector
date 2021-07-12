@@ -65,7 +65,8 @@ local pkt_types = {
   [0x0C] = "authenticated",
   [0x0D] = "heartbeat ping",
   [0x0E] = "heartbeat pong",
-  [0x0F] = "program ready"
+  [0x0F] = "program ready",
+  [0x1F] = "cloud socket id request",
 }
 
 -- command types
