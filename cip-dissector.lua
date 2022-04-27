@@ -25,6 +25,7 @@ local JOIN_TYPE_CALENDAR         = "calendar"
 local JOIN_TYPE_SERIAL_12        = "serial 12"
 local JOIN_TYPE_ANALOG_SYMMETRIC = "analog symmetric"
 local JOIN_TYPE_SERIAL           = "serial"
+local JOIN_TYPE_DEVICE_CONFIG    = "generic device config"
 local JOIN_TYPE_XIO_CONTROL      = "xio control"
 local JOIN_TYPE_REPEAT_DIGITAL   = "repeat digital"
 local JOIN_TYPE_SERIAL_LONG      = "serial long (unicode)"
@@ -66,7 +67,17 @@ local pkt_types = {
   [0x0D] = "heartbeat ping",
   [0x0E] = "heartbeat pong",
   [0x0F] = "program ready",
+  [0x12] = "extended data",
   [0x1F] = "cloud socket id request",
+  [0x20] = "fitc redirect",
+  [0x21] = "cloud socket not licensed",
+  [0x22] = "extended service request",
+  [0x23] = "extended service response",
+  [0x24] = "extended service data",
+  [0x25] = "extended service status",
+  [0x26] = "device router connect request",
+  [0x27] = "device router connect response",
+  [0x28] = "specific cloud socket identifier",
 }
 
 -- command types
@@ -90,7 +101,7 @@ local join_types = {
   [0x12] = JOIN_TYPE_SERIAL_12,
   [0x14] = JOIN_TYPE_ANALOG_SYMMETRIC,
   [0x15] = JOIN_TYPE_SERIAL,
-  [0x1c] = JOIN_TYPE_XIO_CONTROL,
+  [0x1c] = JOIN_TYPE_DEVICE_CONFIG,
   [0x27] = JOIN_TYPE_REPEAT_DIGITAL,
   [0x34] = JOIN_TYPE_SERIAL_LONG,
   [0x38] = JOIN_TYPE_SMART_OBJECT
@@ -488,6 +499,8 @@ function pkt_type_05_join_name(join_type, join_number)
   end
   if join_type == 0x08 then
     return JOIN_TYPE_CALENDAR
+  elseif join_type == 0x1c then
+    return JOIN_TYPE_DEVICE_CONFIG
   end
   join_name = join_numbers[join_number]
   --[[
@@ -536,7 +549,10 @@ function pkt_type_05_parse_payload(payload)
   local join_number, join_value, join_name, summary, value_string, flags
   local join_type_name = join_types[join_type]
   local join_type_abbrev = join_type_name == nil and "?" or join_type_name
-  join_type_abbrev = string.upper(string.match(join_type_abbrev, "^%a"))
+  if join_type_abbrev ~= "?" then
+    join_type_abbrev = string.upper(string.match(join_type_abbrev, "^%a"))
+  end
+  join_number = 0
   if join_type_name == nil then
     join_number = 0
     join_value = ""
@@ -570,6 +586,24 @@ function pkt_type_05_parse_payload(payload)
     is_end_of_message = bit.band(flags, END_OF_MESSAGE) == END_OF_MESSAGE
     join_value = is_end_of_message and string.sub(data(3):string(), 2) or ""
     value_string = join_value
+  elseif string.match(join_type_name, JOIN_TYPE_DEVICE_CONFIG) then
+    join_type_len = 1
+    join_value = ""
+    value_string = ""
+    flags = 0x00
+    subtype = data(join_type_len, 1):uint()
+    if subtype == 0x05 then
+      -- PKT_TYPE_GENERIC_DEVICE_CONFIG_SUBTYPE_GENERIC_STRING_PARAM
+      subtype_len = 1
+      reserved_len = 2
+      offset = join_type_len + subtype_len + reserved_len
+      value_len = data_len - offset
+      if value_len > 0 then
+        join_value = data(offset, value_len):string()
+        value_string = join_value
+        io.write("join_value:",join_value,"\n")
+      end
+    end
   end
   join_type_name = join_type_name == nil and "x" or join_type_name
   join_name = pkt_type_05_join_name(join_type, join_number)
